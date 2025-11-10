@@ -1,234 +1,152 @@
-#  MIT License
-#
-#  Copyright (c) 2019-present Dan <https://github.com/delivrance>
-#
-#  Permission is hereby granted, free of charge, to any person obtaining a copy
-#  of this software and associated documentation files (the "Software"), to deal
-#  in the Software without restriction, including without limitation the rights
-#  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-#  copies of the Software, and to permit persons to whom the Software is
-#  furnished to do so, subject to the following conditions:
-#
-#  The above copyright notice and this permission notice shall be included in all
-#  copies or substantial portions of the Software.
-#
-#  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-#  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-#  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-#  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-#  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-#  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-#  SOFTWARE
-#  Code edited By Cryptostark
-import urllib
-import urllib.parse
-import requests
+# MIT License
+# Cleaned & Fixed Ocean-Gurukul Extractor — Cryptostark Upgrade
+
 import json
-import subprocess
-from pyrogram.types.messages_and_media import message
-import helper
-from pyromod import listen
-from pyrogram.types import Message
-import tgcrypto
-import pyrogram
-from pyrogram import Client, filters
-from pyrogram.types.messages_and_media import message
-from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-from pyrogram.errors import FloodWait
-import time
-from pyrogram.types import User, Message
-from p_bar import progress_bar
-from subprocess import getstatusoutput
-import logging
-import os
-import sys
-import re
-from pyrogram import Client as bot
+import requests
 import cloudscraper
+from pyromod import listen
+from pyrogram import Client as bot, filters
+from pyrogram.types import Message
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import unpad
-from base64 import b64encode, b64decode
-@bot.on_message(filters.command(["ocean"]) & ~filters.edited)
-async def account_login(bot: Client, m: Message):
-    global cancel
-    cancel = False
+from base64 import b64decode
+import os
+
+
+def decrypt(enc):
+    """Decrypt AES encoded ocean-links"""
+    try:
+        key = "638udh3829162018".encode("utf8")
+        iv = "fedcba9876543210".encode("utf8")
+        ciphertext = bytearray.fromhex(b64decode(enc.encode()).hex())
+        cipher = AES.new(key, AES.MODE_CBC, iv)
+        plaintext = unpad(cipher.decrypt(ciphertext), AES.block_size)
+        return plaintext.decode("utf-8")
+    except:
+        return "Invalid/Encrypted"
+
+
+@bot.on_message(filters.command("ocean"))
+async def ocean_handler(bot, m: Message):
+
     editable = await m.reply_text(
-        "Send **ID & Password** in this manner otherwise bot will not respond.\n\nSend like this:-  **ID*Password**")
-    rwa_url = "https://oceangurukulsapi.classx.co.in/post/userLogin"
-    hdr = {"Auth-Key": "appxapi",
-           "User-Id": "-2",
-           "Authorization": "",
-           "User_app_category": "",
-           "Language": "en",
-           "Content-Type": "application/x-www-form-urlencoded",
-           "Content-Length": "233",
-           "Accept-Encoding": "gzip, deflate",
-           "User-Agent": "okhttp/4.9.1"
-          }
-    info = {"email": "", "password": ""}
-    #7355971781*73559717
-    input1: Message = await bot.listen(editable.chat.id)
-    raw_text = input1.text
-    info["email"] = raw_text.split("*")[0]
-    info["password"] = raw_text.split("*")[1]
-    await input1.delete(True)
+        "Send **ID & Password** like this:\n\n`ID*Password`"
+    )
+
+    inp: Message = await bot.listen(editable.chat.id)
+    raw = inp.text
+
+    if "*" not in raw:
+        return await editable.edit("❌ Wrong format! Use `ID*Password`")
+
+    email = raw.split("*")[0]
+    password = raw.split("*")[1]
+    await inp.delete()
+
+    login_url = "https://oceangurukulsapi.classx.co.in/post/userLogin"
+
+    hdr = {
+        "Auth-Key": "appxapi",
+        "User-Id": "-2",
+        "Content-Type": "application/x-www-form-urlencoded",
+        "User-Agent": "okhttp/4.9.1",
+    }
+
     scraper = cloudscraper.create_scraper()
-    res = scraper.post(rwa_url, data=info, headers=hdr).content
-    output = json.loads(res)
-    #print(output)
-    userid = output["data"]["userid"]
-    token = output["data"]["token"]
-    hdr1 = {
+    res = scraper.post(login_url, data={"email": email, "password": password}, headers=hdr).content
+    data = json.loads(res)
+
+    user_id = data["data"]["userid"]
+    token = data["data"]["token"]
+
+    hdr_auth = {
         "Host": "oceangurukulsapi.classx.co.in",
         "Client-Service": "Appx",
         "Auth-Key": "appxapi",
-        "User-Id": userid,
+        "User-Id": user_id,
         "Authorization": token
-        }
-    #print(userid)
-    #print(token)
-    await editable.edit("**login Successful**")
-    # await editable.edit(f"You have these Batches :-\n{raw_text}"
-    cour_url = "https://oceangurukulsapi.classx.co.in/get/mycourse?userid="
+    }
 
-    res1 = requests.get("https://oceangurukulsapi.classx.co.in/get/mycourse?userid="+userid, headers=hdr1)
-    b_data = res1.json()['data']
-    cool = ""
-    for data in b_data:
-        t_name =data['course_name']
-        FFF = "**BATCH-ID - BATCH NAME - INSTRUCTOR**"
-        aa = f" ```{data['id']}```      - **{data['course_name']}**\n\n"
-        # aa=f"**Batch Name -** {data['batchName']}\n**Batch ID -** ```{data['id']}```\n**By -** {data['instructorName']}\n\n"
-        if len(f'{cool}{aa}') > 4096:
-            print(aa)
-            cool = ""
-        cool += aa
-    await editable.edit(f'{"**You have these batches :-**"}\n\n{FFF}\n\n{cool}')
-    editable1 = await m.reply_text("**Now send the Batch ID to Download**")
-    input2 = message = await bot.listen(editable.chat.id)
-    raw_text2 = input2.text
+    await editable.edit("✅ **Login Successful**")
 
-    # sub_id_url="https://rgvikramjeetapi.classx.co.in/get/allsubjectfrmlivecourseclass?courseid="
-    scraper = cloudscraper.create_scraper()
-    html = scraper.get("https://oceangurukulsapi.classx.co.in/get/allsubjectfrmlivecourseclass?courseid=" + raw_text2,headers=hdr1).content
-    output0 = json.loads(html)
-    subjID = output0["data"]
-    await m.reply_text(subjID)
-    #SubiD = input("Enter the Subject Id Show in above Response")
+    # ------------------------- BATCH LIST -------------------------
+    batches = requests.get(
+        f"https://oceangurukulsapi.classx.co.in/get/mycourse?userid={user_id}",
+        headers=hdr_auth
+    ).json()["data"]
 
-    editable1 = await m.reply_text("**Enter the Subject Id Show in above Response")
-    input3 = message = await bot.listen(editable.chat.id)
-    raw_text3 = input3.text
+    text = ""
+    for b in batches:
+        text += f"```{b['id']}``` — **{b['course_name']}**\n\n"
 
-    res3 = requests.get("https://oceangurukulsapi.classx.co.in/get/alltopicfrmlivecourseclass?courseid=" + raw_text2,"&subjectid=" + raw_text3, headers=hdr1)
-    b_data2 = res3.json()['data']
-    # print(b_data2)
-    vj = ""
-    for data in b_data2:
-        tids = (data["topicid"])
-        idid = f"{tids}&"
-        if len(f"{vj}{idid}") > 4096:
-            ##await m.reply_text(idid)
-            vj = ""
-        vj += idid
-    #print(vj)
-    vp = ""
-    for data in b_data2:
-        tn = (data["topic_name"])
-        tns = f"{tn}&"
-        if len(f"{vp}{tn}") > 4096:
-            ##await m.reply_text(tns)
-            vp = ""
-        vp += tns
-    #print(vp)
-    cool1 = ""
-    #BBB = ''
-    for data in b_data2:
-        t_name = (data["topic_name"])
-        tid = (data["topicid"])
-        zz = len(tid)
-        BBB = f"{'**TOPIC-ID    - TOPIC     - VIDEOS**'}\n"
-        hh = f"```{tid}```     - **{t_name} - ({zz})**\n"
-        #hh = f"**Topic -** {t_name}\n**Topic ID - ** ```{tid}```\nno. of videos are : {zz}\n\n"
-        if len(f'{cool1}{hh}') > 4096:
-            cool1 = ""
-        cool1 += hh
-    await m.reply_text(f'Batch details of **{t_name}** are:\n\n{BBB}\n\n{cool1}')
+    await editable.edit(f"**Your Batches:**\n\n{text}")
 
-    editable= await m.reply_text(f"Now send the **Topic IDs** to Download\n\nSend like this **1&2&3&4** so on\nor copy paste or edit **below ids** according to you :\n\n**Enter this to download full batch :-**\n```{vj}```")
-    input4 = message = await bot.listen(editable.chat.id)
-    raw_text4 = input4.text
+    ask1 = await m.reply_text("✅ Send Batch ID")
+    batch_id = (await bot.listen(ask1.chat.id)).text
 
-    editable3 = await m.reply_text("**Now send the Resolution**")
-    input5 = message = await bot.listen(editable.chat.id)
-    raw_text5 = input5.text
+    # ------------------------- SUBJECT LIST -------------------------
+    subj_resp = scraper.get(
+        f"https://oceangurukulsapi.classx.co.in/get/allsubjectfrmlivecourseclass?courseid={batch_id}",
+        headers=hdr_auth
+    ).json()["data"]
+
+    sub_list = ""
+    sub_ids = ""
+
+    for s in subj_resp:
+        sid = s["subjectid"]
+        name = s["subject_name"]
+        sub_list += f"```{sid}``` — **{name}**\n"
+        sub_ids += f"{sid}&"
+
+    ask2 = await m.reply_text(
+        f"**Subjects:**\n\n{sub_list}\n\nSend IDs:\n```{sub_ids}```"
+    )
+    subject_ids = (await bot.listen(ask2.chat.id)).text.split("&")
+
+    # ------------------------- OUTPUT FILE -------------------------
+    file_name = "Ocean-Gurukul.txt"
+    if os.path.exists(file_name):
+        os.remove(file_name)
+
+    prog = await m.reply_text("📥 Extracting links... Please wait...")
+
+    # ------------------------- TOPICS + LINKS -------------------------
     try:
-        xv = raw_text4.split('&')
-        for y in range(0,len(xv)):
-            t =xv[y]
+        for sid in subject_ids:
+            sid = sid.strip()
+            if not sid:
+                continue
 
-            hdr11 = {
-                    "Host": "oceangurukulsapi.classx.co.in",
-                    "Client-Service": "Appx",
-                    "Auth-Key": "appxapi",
-                    "User-Id": userid,
-                    "Authorization": token
-                    }
+            topic_resp = requests.get(
+                f"https://oceangurukulsapi.classx.co.in/get/alltopicfrmlivecourseclass?courseid={batch_id}&subjectid={sid}",
+                headers=hdr_auth
+            ).json()["data"]
 
-            res4 = requests.get("https://oceangurukulsapi.classx.co.in/get/livecourseclassbycoursesubtopconceptapiv3?topicid=" + t + "&start=-1&conceptid=1&courseid=" + raw_text2 + "&subjectid=" + raw_text3,headers=hdr11).json()
+            for topic in topic_resp:
+                tid = topic["topicid"]
 
-            topicid = res4["data"]
-            vj = ""
-            for data in topicid:
-                tids = (data["Title"])
-                idid = f"{tids}"
-                if len(f"{vj}{idid}") > 4096:
-                    vj = ""
-                vj += idid
+                video_resp = requests.get(
+                    f"https://oceangurukulsapi.classx.co.in/get/livecourseclassbycoursesubtopconceptapiv3?courseid={batch_id}&subjectid={sid}&topicid={tid}&start=-1",
+                    headers=hdr_auth
+                ).json()["data"]
 
-            vp = ""
-            for data in topicid:
-                tn = (data["download_link"])
-                tns = f"{tn}"
-                if len(f"{vp}{tn}") > 4096:
-                    vp = ""
-        # print("Download Links: \n", tns
-                vp += tn
-            vs = ""
-            for data in topicid:
-                tn0 = (data["pdf_link"])
-                tns0 = f"{tn0}"
-                if len(f"{vs}{tn0}") > 4096:
-                    vs = ""
-            # print("Download Links: \n", tns
-                vs += tn0
-            cool2 = ""
-            #BBB1 = ''
-            for data in topicid:
-                if data["download_link"]:
-                    b64 = (data["download_link"])
-                else:
-                    b64 = (data["pdf_link"])
-                tid = (data["Title"])
-                zz = len(tid)
-                key = "638udh3829162018".encode("utf8")
-                iv = "fedcba9876543210".encode("utf8")
-                ciphertext = bytearray.fromhex(b64decode(b64.encode()).hex())
-                cipher = AES.new(key, AES.MODE_CBC, iv)
-                plaintext = unpad(cipher.decrypt(ciphertext), AES.block_size)
-                #print(plaintext)
-                b=plaintext.decode('utf-8')
-                cc0 = (f"{tid}:{b}")
-                if len(f'{cool2}{cc0}') > 4096:
-                    ##await m.reply_text(hh)
-                    cool2 = ""
-                cool2 += cc0
-                mm = "Ocean-Gurukul"
-                #await m.reply_text(BBB1, hh)
-                
-                with open(f'{mm}.txt', 'a') as f:
-                    f.write(f"{tid}:{b}\n")
-        await m.reply_document(f"{mm}.txt")
+                for v in video_resp:
+                    title = v["Title"]
+
+                    # Video link
+                    if v["download_link"]:
+                        url = decrypt(v["download_link"])
+                        with open(file_name, "a") as f:
+                            f.write(f"{title}:{url}\n")
+
+                    # PDF link
+                    if v["pdf_link"]:
+                        url = decrypt(v["pdf_link"])
+                        with open(file_name, "a") as f:
+                            f.write(f"{title}:{url}\n")
+
+        await prog.delete()
+        await m.reply_document(file_name, caption="✅ Ocean Gurukul Extracted")
     except Exception as e:
-        await m.reply_text(str(e))
-    await m.reply_text("Done") 
+        await m.reply_text(f"❌ Error: {str(e)}")
