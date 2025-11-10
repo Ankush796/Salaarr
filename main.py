@@ -1,75 +1,85 @@
+#  MIT License header ...
+
 import os
+import sys
 import asyncio
 import logging
 from logging.handlers import RotatingFileHandler
 
+from config import Config
 from pyrogram import Client, idle, filters
 
-try:
-    from pyromod import listen
-except:
-    pass
+# --- Make the running script importable as 'main' (fix plugins importing main) ---
+sys.modules['main'] = sys.modules[__name__]
 
-# Logging
+# --- Optional: enable PyroMod conversations if present ---
+try:
+    from pyromod import listen  # noqa: F401
+except Exception as e:
+    logging.warning("PyroMod load warning: %s", e)
+
+# -------- Logger ----------
 LOGGER = logging.getLogger(__name__)
 logging.basicConfig(
     level=logging.INFO,
     format="%(name)s - %(message)s",
+    datefmt="%d-%b-%y %H:%M:%S",
     handlers=[
-        RotatingFileHandler("log.txt", maxBytes=5_000_000, backupCount=5),
+        RotatingFileHandler("log.txt", maxBytes=5_000_000, backupCount=10),
         logging.StreamHandler(),
     ],
 )
 
-# filters.edited fix (old plugins dependent)
+# -------- filters.edited shim for Pyrogram v2 (so ~filters.edited works) ----------
 if not hasattr(filters, "edited"):
-    from pyrogram.filters import create
+    from pyrogram.filters import create as _create_filter  # type: ignore
     def _is_edited(_, __, m): return getattr(m, "edit_date", None) is not None
-    filters.edited = create(_is_edited)
+    filters.edited = _create_filter(_is_edited)
 
-# ENV CONFIG
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-API_ID = int(os.getenv("API_ID", 0))
-API_HASH = os.getenv("API_HASH")
-AUTH_USERS = [int(x) for x in os.getenv("AUTH_USERS", "").split(",") if x.strip().isdigit()]
+# -------- Auth Users / Prefixes exported for plugins ----------
+AUTH_USERS = [int(x) for x in (Config.AUTH_USERS or "").split(",") if x.strip().isdigit()]
+prefixes = ["/", "~", "?", "!"]
 
+# -------- Plugins root ----------
 plugins = dict(root="plugins")
 
-# Render health port
-async def health_server():
-    port = int(os.getenv("PORT", "0") or 0)
-    if port == 0:
+# -------- Tiny HTTP server for Render (bind PORT if set) ----------
+async def _start_health_server():
+    port = int(os.getenv("PORT", "0") or "0")
+    if port <= 0:
         return
     try:
         from aiohttp import web
-        async def ok(_):
-            return web.Response(text="ok")
+        async def ok(_): return web.Response(text="ok")
         app = web.Application()
         app.router.add_get("/", ok)
         runner = web.AppRunner(app)
         await runner.setup()
-        await web.TCPSite(runner, "0.0.0.0", port).start()
-        LOGGER.info(f"Health server running on {port}")
+        site = web.TCPSite(runner, "0.0.0.0", port)
+        await site.start()
+        LOGGER.info("Health server running on 0.0.0.0:%s", port)
     except Exception as e:
-        LOGGER.warning(f"Health server error: {e}")
+        LOGGER.warning("Health server failed: %s", e)
 
+# -------- Bot client ----------
 bot = Client(
-    "bot-session",
-    bot_token=BOT_TOKEN,
-    api_id=API_ID,
-    api_hash=API_HASH,
+    name="bot-session",
+    bot_token=Config.BOT_TOKEN,
+    api_id=Config.API_ID,
+    api_hash=Config.API_HASH,
+    sleep_threshold=20,
     plugins=plugins,
     workers=50,
-    sleep_threshold=20,
 )
 
 async def main():
-    await health_server()
+    await _start_health_server()
     await bot.start()
     me = await bot.get_me()
     LOGGER.info(f"<--- @{me.username} Started --->")
     await idle()
     await bot.stop()
+    LOGGER.info("<--- Bot Stopped --->")
 
 if __name__ == "__main__":
     asyncio.run(main())
