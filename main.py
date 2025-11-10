@@ -1,4 +1,4 @@
-#  MIT License header as-is
+#  MIT License (header as-is)
 
 import os
 import asyncio
@@ -8,13 +8,13 @@ from logging.handlers import RotatingFileHandler
 from config import Config
 from pyrogram import Client, idle, filters
 
-# --- Optional: PyroMod (just importing enables conversations) ---
+# ----- Optional: PyroMod enable (for .ask/.listen in plugins)
 try:
-    from pyromod import listen  # noqa
+    from pyromod import listen  # noqa: F401
 except Exception as e:
     logging.warning("PyroMod load warning: %s", e)
 
-# ---------- Logger (exported) ----------
+# -------- Logger ----------
 LOGGER = logging.getLogger(__name__)
 logging.basicConfig(
     level=logging.INFO,
@@ -26,7 +26,7 @@ logging.basicConfig(
     ],
 )
 
-# ---------- filters.edited shim (so ~filters.edited works) ----------
+# -------- filters.edited shim (old plugins expect ~filters.edited) ----------
 if not hasattr(filters, "edited"):
     from pyrogram.filters import create as _create_filter  # type: ignore
 
@@ -35,16 +35,16 @@ if not hasattr(filters, "edited"):
 
     filters.edited = _create_filter(_is_edited)
 
-# ---------- Auth Users (exported) ----------
+# -------- Auth Users ----------
 AUTH_USERS = [int(x) for x in (Config.AUTH_USERS or "").split(",") if x.strip().isdigit()]
 
-# ---------- Prefixes (exported, plugins import this) ----------
+# -------- Prefixes (some plugins import this from main) ----------
 prefixes = ["/", "~", "?", "!"]
 
-# ---------- Plugins root ----------
+# -------- Plugins root ----------
 plugins = dict(root="plugins")
 
-# ---------- Tiny HTTP server for Render (binds $PORT) ----------
+# -------- Tiny HTTP server (Render health) ----------
 async def _start_health_server():
     port = int(os.getenv("PORT", "0") or "0")
     if port <= 0:
@@ -63,7 +63,7 @@ async def _start_health_server():
     except Exception as e:
         LOGGER.warning("Health server failed: %s", e)
 
-# ---------- Bot client ----------
+# -------- Bot client ----------
 bot = Client(
     name="bot-session",
     bot_token=Config.BOT_TOKEN,
@@ -75,10 +75,25 @@ bot = Client(
 )
 
 async def main():
+    # Health server for Render
     await _start_health_server()
+
+    # Very important: make sure no leftover webhook (safe to call anytime)
+    try:
+        await bot.delete_webhook(drop_pending_updates=True)
+    except Exception:
+        pass
+
+    # Start bot
     await bot.start()
     me = await bot.get_me()
     LOGGER.info(f"<--- @{me.username} Started --->")
+
+    # Optional: a tiny sanity command if plugins fail
+    @bot.on_message(filters.command("ping"))
+    async def _ping(_, m):
+        await m.reply_text("pong")
+
     await idle()
     await bot.stop()
     LOGGER.info("<--- Bot Stopped --->")
