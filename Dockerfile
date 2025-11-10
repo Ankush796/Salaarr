@@ -7,7 +7,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 WORKDIR /app
 
-# System packages (use apt, not apk)
+# System packages
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     gcc \
@@ -15,17 +15,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     mediainfo \
     aria2 \
-  && rm -rf /var/lib/apt/lists/*
+ && apt-get clean \
+ && rm -rf /var/lib/apt/lists/*
 
-# Faster pip
+# Upgrade pip (fast)
 RUN python -m pip install --upgrade pip
 
-# Python deps (cache layer)
+# Install python deps
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# App code
+# Copy whole project
 COPY . .
 
-# Start
+# Start bot
 CMD ["python", "main.py"]
