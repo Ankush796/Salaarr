@@ -1,175 +1,181 @@
 #  MIT License
+#
+#  Copyright ...
 #  Code edited By Cryptostark
 
-import json
+import urllib
+import urllib.parse
 import requests
+import json
+import subprocess
+from pyrogram import Client, filters
+from pyrogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup
+from pyrogram.errors import FloodWait
+import time
+from p_bar import progress_bar
+from subprocess import getstatusoutput
+import logging
+import os
+import sys
+import re
+from pyrogram import Client as bot
 import cloudscraper
-from base64 import b64decode
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import unpad
-
-from pyromod import listen  # to enable .listen()
-from pyrogram import Client as bot, filters
-from pyrogram.types import Message
-
-
-def _aes_decode(b64: str) -> str:
-    """Decode AES-CBC(base64→hex) string used by these APIs."""
-    key = "638udh3829162018".encode("utf8")
-    iv = "fedcba9876543210".encode("utf8")
-    ciphertext = bytearray.fromhex(b64decode(b64.encode()).hex())
-    cipher = AES.new(key, AES.MODE_CBC, iv)
-    plaintext = unpad(cipher.decrypt(ciphertext), AES.block_size)
-    return plaintext.decode("utf-8")
-
+from base64 import b64decode
 
 @bot.on_message(filters.command(["winners"]))
-async def account_login(client: bot, m: Message):
-    # ---- login ----
+async def account_login(bot: Client, m: Message):
+    global cancel
+    cancel = False
+
     editable = await m.reply_text(
-        "Send **ID & Password** is format:  `ID*Password`"
+        "Send **ID & Password** in this manner otherwise bot will not respond.\n\nSend like this:-  **ID*Password**"
     )
-    input1: Message = await client.listen(editable.chat.id)
-    raw_text = input1.text or ""
-    await input1.delete(True)
 
-    if "*" not in raw_text:
-        return await editable.edit("❌ Galat format! Use:  `ID*Password`")
-
-    email, password = raw_text.split("*", 1)
-
-    login_url = "https://winnersinstituteapi.classx.co.in/post/userLogin"
-    hdr_login = {
+    rwa_url = "https://winnersinstituteapi.classx.co.in/post/userLogin"
+    hdr = {
         "Auth-Key": "appxapi",
         "User-Id": "-2",
         "Authorization": "",
         "User_app_category": "",
         "Language": "en",
         "Content-Type": "application/x-www-form-urlencoded",
+        "Content-Length": "233",
         "Accept-Encoding": "gzip, deflate",
-        "User-Agent": "okhttp/4.9.1",
+        "User-Agent": "okhttp/4.9.1"
     }
 
-    scraper = cloudscraper.create_scraper()
-    res = scraper.post(login_url, data={"email": email, "password": password}, headers=hdr_login).content
-    try:
-        output = json.loads(res)
-        userid = output["data"]["userid"]
-        token = output["data"]["token"]
-    except Exception:
-        return await editable.edit("❌ Login failed. Response invalid ya creds galat.")
+    info = {"email": "", "password": ""}
 
-    hdr_auth = {
+    input1: Message = await bot.listen(editable.chat.id)
+    raw_text = input1.text
+    info["email"] = raw_text.split("*")[0]
+    info["password"] = raw_text.split("*")[1]
+    await input1.delete(True)
+
+    scraper = cloudscraper.create_scraper()
+    res = scraper.post(rwa_url, data=info, headers=hdr).content
+    output = json.loads(res)
+
+    userid = output["data"]["userid"]
+    token = output["data"]["token"]
+
+    hdr1 = {
         "Host": "winnersinstituteapi.classx.co.in",
         "Client-Service": "Appx",
         "Auth-Key": "appxapi",
         "User-Id": userid,
-        "Authorization": token,
+        "Authorization": token
     }
 
-    await editable.edit("✅ **Login Successful**")
+    await editable.edit("**login Successful**")
 
-    # ---- list courses ----
-    r1 = requests.get(
+    res1 = requests.get(
         f"https://winnersinstituteapi.classx.co.in/get/mycourse?userid={userid}",
-        headers=hdr_auth,
+        headers=hdr1
     )
-    data = r1.json().get("data", [])
-    if not data:
-        return await m.reply_text("Koi course nahi mila.")
 
-    FFF = "**BATCH-ID - BATCH NAME**"
-    chunks = []
-    for d in data:
-        chunks.append(f"```{d['id']}```  - **{d['course_name']}**")
-    await editable.edit(f"**You have these batches :-**\n\n{FFF}\n\n" + "\n\n".join(chunks))
+    b_data = res1.json()['data']
+    cool = ""
+    FFF = "**BATCH-ID - BATCH NAME - INSTRUCTOR**"
 
-    # ---- ask batch id ----
-    ask_batch = await m.reply_text("**Now send the Batch ID to Download**")
-    inp_batch = await client.listen(ask_batch.chat.id)
-    batch_id = (inp_batch.text or "").strip()
-    await inp_batch.delete(True)
+    for data in b_data:
+        aa = f" ```{data['id']}```      - **{data['course_name']}**\n\n"
+        if len(f"{cool}{aa}") > 4096:
+            cool = ""
+        cool += aa
 
-    # ---- subjects for batch ----
+    await editable.edit(f"**You have these batches :-**\n\n{FFF}\n\n{cool}")
+
+    editable1 = await m.reply_text("**Now send the Batch ID to Download**")
+    input2 = await bot.listen(editable.chat.id)
+    raw_text2 = input2.text
+
     html = scraper.get(
-        f"https://winnersinstituteapi.classx.co.in/get/allsubjectfrmlivecourseclass?courseid={batch_id}",
-        headers=hdr_auth,
+        f"https://winnersinstituteapi.classx.co.in/get/allsubjectfrmlivecourseclass?courseid={raw_text2}",
+        headers=hdr1
     ).content
-    subj = json.loads(html).get("data", [])
-    if not subj:
-        return await m.reply_text("Is batch me subjects nahi mile.")
 
-    # show topics list will be built after user picks subject
-    subs_lines, subject_ids = [], []
-    for s in subj:
-        subs_lines.append(f"```{s['subjectid']}```  - **{s['subject_name']}**")
-        subject_ids.append(str(s["subjectid"]))
-    await m.reply_text("\n\n".join(subs_lines))
+    subjID = json.loads(html)["data"]
+    await m.reply_text(subjID)
 
-    ask_sub = await m.reply_text("**Enter the Subject Id shown above**")
-    inp_sub = await client.listen(ask_sub.chat.id)
-    subject_id = (inp_sub.text or "").strip()
-    await inp_sub.delete(True)
+    editable1 = await m.reply_text("**Enter the Subject Id shown above**")
+    input3 = await bot.listen(editable.chat.id)
+    raw_text3 = input3.text
 
-    # ---- topics under subject ----
-    # NOTE: original code had a broken requests.get with two URL args; fixed to proper single URL.
-    r_topics = requests.get(
-        f"https://winnersinstituteapi.classx.co.in/get/alltopicfrmlivecourseclass?courseid={batch_id}&subjectid={subject_id}",
-        headers=hdr_auth,
+    res3 = requests.get(
+        f"https://winnersinstituteapi.classx.co.in/get/alltopicfrmlivecourseclass?courseid={raw_text2}&subjectid={raw_text3}",
+        headers=hdr1
     )
-    topics = r_topics.json().get("data", [])
-    if not topics:
-        return await m.reply_text("Is subject me topics nahi mile.")
 
-    ids_join = "&".join(str(t["topicid"]) for t in topics)
-    details = []
-    for t in topics:
-        tid = t["topicid"]
-        tname = t["topic_name"]
-        details.append(f"```{tid}```  - **{tname}**")
-    await m.reply_text("**TOPIC-ID  -  TOPIC**\n\n" + "\n".join(details))
+    b_data2 = res3.json()['data']
 
-    ask_topics = await m.reply_text(
-        f"Ab **Topic IDs** bhejo `1&2&3` format me.\n\nFull subject ke liye:\n```{ids_join}```"
+    vj = ""
+    cool1 = ""
+    BBB = "**TOPIC-ID    - TOPIC     - VIDEOS**\n"
+
+    for data in b_data2:
+        tid = data["topicid"]
+        tname = data["topic_name"]
+        vj += f"{tid}&"
+
+        hh = f"```{tid}```     - **{tname}**\n"
+        if len(f"{cool1}{hh}") > 4096:
+            cool1 = ""
+        cool1 += hh
+
+    await m.reply_text(f"Batch details:\n\n{BBB}\n{cool1}")
+
+    editable = await m.reply_text(
+        f"Now send the **Topic IDs** to Download\n\n"
+        f"Send like: **1&2&3** etc.\n\n"
+        f"**Full batch:**\n```{vj}```"
     )
-    inp_topics = await client.listen(ask_topics.chat.id)
-    topic_ids = [x.strip() for x in (inp_topics.text or "").split("&") if x.strip()]
-    if not topic_ids:
-        return await m.reply_text("Koi topic id nahi mili.")
 
-    # resolution was never used; keep prompt for compatibility but ignore
-    _ = await m.reply_text("**(Optional) Resolution bhejo — ignore kar sakte ho**")
+    input4 = await bot.listen(editable.chat.id)
+    raw_text4 = input4.text
 
-    out_name = "WinnersInstitute.txt"
-    # fresh file
+    editable3 = await m.reply_text("**Now send the Resolution (not used)**")
+    input5 = await bot.listen(editable.chat.id)
+
     try:
-        import os
-        if os.path.exists(out_name):
-            os.remove(out_name)
-    except Exception:
-        pass
+        xv = raw_text4.split('&')
 
-    # ---- fetch classes for each topic & decode links ----
-    for tid in topic_ids:
-        r_classes = requests.get(
-            f"https://winnersinstituteapi.classx.co.in/get/livecourseclassbycoursesubtopconceptapiv3?topicid={tid}&start=-1&courseid={batch_id}&subjectid={subject_id}",
-            headers=hdr_auth,
-        ).json()
+        mm = "WinnersInstitute"
 
-        classes = r_classes.get("data", [])
-        for item in classes:
-            title = item.get("Title", "").strip()
-            enc = item.get("download_link") or item.get("pdf_link") or ""
-            if not enc:
-                continue
-            try:
-                url = _aes_decode(enc)
-            except Exception:
-                # skip if decode fails
+        for t in xv:
+            if t.strip() == "":
                 continue
 
-            with open(out_name, "a", encoding="utf-8") as f:
-                f.write(f"{title}:{url}\n")
+            hdr11 = hdr1
 
-    await m.reply_document(out_name)
-    await m.reply_text("✅ Done")
+            res4 = requests.get(
+                f"https://winnersinstituteapi.classx.co.in/get/livecourseclassbycoursesubtopconceptapiv3?"
+                f"topicid={t}&start=-1&courseid={raw_text2}&subjectid={raw_text3}",
+                headers=hdr11
+            ).json()
+
+            topicid = res4["data"]
+
+            for data in topicid:
+                b64 = data["download_link"] if data["download_link"] else data["pdf_link"]
+                tid = data["Title"]
+
+                key = "638udh3829162018".encode("utf8")
+                iv = "fedcba9876543210".encode("utf8")
+
+                ciphertext = bytearray.fromhex(b64decode(b64.encode()).hex())
+                cipher = AES.new(key, AES.MODE_CBC, iv)
+                plaintext = unpad(cipher.decrypt(ciphertext), AES.block_size)
+                final_url = plaintext.decode('utf-8')
+
+                with open(f"{mm}.txt", "a") as f:
+                    f.write(f"{tid}:{final_url}\n")
+
+        await m.reply_document(f"{mm}.txt")
+
+    except Exception as e:
+        await m.reply_text(str(e))
+
+    await m.reply_text("Done")
