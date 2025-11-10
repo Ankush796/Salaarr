@@ -8,13 +8,15 @@ from logging.handlers import RotatingFileHandler
 from config import Config
 from pyrogram import Client, idle, filters
 
-# ----- Optional: PyroMod enable (for .ask/.listen in plugins)
+# ----- Optional: PyroMod enable (.ask & .listen for plugins)
 try:
     from pyromod import listen  # noqa: F401
 except Exception as e:
     logging.warning("PyroMod load warning: %s", e)
 
-# -------- Logger ----------
+# -----------------------------------------
+#               LOGGER
+# -----------------------------------------
 LOGGER = logging.getLogger(__name__)
 logging.basicConfig(
     level=logging.INFO,
@@ -26,44 +28,69 @@ logging.basicConfig(
     ],
 )
 
-# -------- filters.edited shim (old plugins expect ~filters.edited) ----------
+# -----------------------------------------
+#       filters.edited FIX (plugins safe)
+# -----------------------------------------
+"""
+Old plugins use:  @bot.on_message(filters.command(...) & ~filters.edited)
+
+Pyrogram v2 removed filters.edited, so we patch it manually here.
+"""
 if not hasattr(filters, "edited"):
-    from pyrogram.filters import create as _create_filter  # type: ignore
+    from pyrogram.filters import create as _create_filter
 
     def _is_edited(_, __, m):
         return getattr(m, "edit_date", None) is not None
 
     filters.edited = _create_filter(_is_edited)
 
-# -------- Auth Users ----------
+# -----------------------------------------
+#         AUTH USERS LIST
+# -----------------------------------------
 AUTH_USERS = [int(x) for x in (Config.AUTH_USERS or "").split(",") if x.strip().isdigit()]
 
-# -------- Prefixes (some plugins import this from main) ----------
-prefixes = ["/", "~", "?", "!"]
+# -----------------------------------------
+#           COMMAND PREFIXES
+# -----------------------------------------
+prefixes = ["/", "!", "?", "~"]
 
-# -------- Plugins root ----------
+# -----------------------------------------
+#        PLUGINS Directory Loader
+# -----------------------------------------
 plugins = dict(root="plugins")
 
-# -------- Tiny HTTP server (Render health) ----------
+# -----------------------------------------
+#        HEALTH SERVER (Render)
+# -----------------------------------------
 async def _start_health_server():
     port = int(os.getenv("PORT", "0") or "0")
+
     if port <= 0:
         return
+
     try:
         from aiohttp import web
+
         async def ok(_):
             return web.Response(text="ok")
+
         app = web.Application()
         app.router.add_get("/", ok)
+
         runner = web.AppRunner(app)
         await runner.setup()
+
         site = web.TCPSite(runner, "0.0.0.0", port)
         await site.start()
-        LOGGER.info("Health server running on 0.0.0.0:%s", port)
+
+        LOGGER.info(f"Health server running at: 0.0.0.0:{port}")
+
     except Exception as e:
         LOGGER.warning("Health server failed: %s", e)
 
-# -------- Bot client ----------
+# -----------------------------------------
+#             BOT INSTANCE
+# -----------------------------------------
 bot = Client(
     name="bot-session",
     bot_token=Config.BOT_TOKEN,
@@ -74,14 +101,18 @@ bot = Client(
     workers=50,
 )
 
+# -----------------------------------------
+#                 MAIN
+# -----------------------------------------
 async def main():
-    # Health server for Render
+
+    # Health check for Render/Railway
     await _start_health_server()
 
-    # Very important: make sure no leftover webhook (safe to call anytime)
+    # Remove webhook safely (important for polling)
     try:
         await bot.delete_webhook(drop_pending_updates=True)
-    except Exception:
+    except:
         pass
 
     # Start bot
@@ -89,14 +120,16 @@ async def main():
     me = await bot.get_me()
     LOGGER.info(f"<--- @{me.username} Started --->")
 
-    # Optional: a tiny sanity command if plugins fail
+    # Small test command
     @bot.on_message(filters.command("ping"))
     async def _ping(_, m):
-        await m.reply_text("pong")
+        await m.reply_text("pong ✅")
 
     await idle()
+
     await bot.stop()
     LOGGER.info("<--- Bot Stopped --->")
+
 
 if __name__ == "__main__":
     asyncio.run(main())
